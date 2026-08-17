@@ -109,12 +109,34 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, http.ErrNotSupported
 }
 
-// hidden reports whether p contains a dot-prefixed path segment, such as
-// /licks/.git/config or /.env. /.well-known is exempt so ACME challenges and
-// friends keep working.
-func hidden(p string) bool {
+// backupSuffixes are editor and tool leftovers, which get written in place
+// right next to the file they shadow. index.html~ serves the previous revision
+// of a page as plain text, so scanners probe for these alongside .git and .env.
+var backupSuffixes = []string{"~", ".bak", ".orig", ".old", ".save", ".swp", ".swo", ".rej"}
+
+// blocked reports whether p must not be served, either because a path segment
+// is dot-prefixed (/licks/.git/config, /.env) or because one is an editor
+// backup (/index.html~, /band/song.css~). /.well-known is exempt so ACME
+// challenges and friends keep working.
+func blocked(p string) bool {
 	for _, seg := range strings.Split(path.Clean("/"+strings.TrimPrefix(p, "/")), "/") {
 		if len(seg) > 1 && seg[0] == '.' && seg != ".well-known" {
+			return true
+		}
+		if backup(seg) {
+			return true
+		}
+	}
+	return false
+}
+
+// backup reports whether a single path segment names an editor backup. It is
+// checked per segment rather than on the basename alone so that a whole
+// leftover directory, foo.orig/bar.txt, is covered too.
+func backup(seg string) bool {
+	seg = strings.ToLower(seg)
+	for _, suffix := range backupSuffixes {
+		if len(seg) > len(suffix) && strings.HasSuffix(seg, suffix) {
 			return true
 		}
 	}
@@ -243,7 +265,7 @@ func newServer(cfg config) (*server, error) {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if hidden(req.URL.Path) {
+	if blocked(req.URL.Path) {
 		http.NotFound(w, req)
 		return
 	}

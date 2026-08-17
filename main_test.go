@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestHidden(t *testing.T) {
+func TestBlocked(t *testing.T) {
 	for _, tc := range []struct {
 		path string
 		want bool
@@ -26,9 +26,45 @@ func TestHidden(t *testing.T) {
 		{"/licks/index.html", false},
 		{"/licks/foo.min.js", false},
 		{"/a./b", false},
+
+		// Editor backups actually present in the web root.
+		{"/index.html~", true},
+		{"/boots.html~", true},
+		{"/page.html~", true},
+		{"/iremitter.html~", true},
+		{"/ir_emitter_circuit.svg~", true},
+		{"/band/song.css~", true},
+		{"/band/ceruleanblue/index.html~", true},
+		{"/bluetooth/index.html~", true},
+		{"/webtrek/index.html~", true},
+
+		// Other backup conventions, including a whole leftover directory.
+		{"/index.html.bak", true},
+		{"/index.html.BAK", true},
+		{"/main.go.orig", true},
+		{"/notes.old", true},
+		{"/conf.save", true},
+		{"/index.html.swp", true},
+		{"/site.orig/index.html", true},
+
+		// The real files they shadow must still be served.
+		{"/index.html", false},
+		{"/boots.html", false},
+		{"/band/song.css", false},
+		{"/band/ceruleanblue/index.html", false},
+		{"/ir_emitter_circuit.svg", false},
+
+		// A bare suffix is a name, not a backup of something.
+		{"/~", false},
+		{"/a/~", false},
+		{"/.bak", true}, // dot-prefixed, caught by the other rule
+
+		// Left alone deliberately: not backups.
+		{"/licks/README.md", false},
+		{"/in-keeping.zip", false},
 	} {
-		if got := hidden(tc.path); got != tc.want {
-			t.Errorf("hidden(%q) = %v, want %v", tc.path, got, tc.want)
+		if got := blocked(tc.path); got != tc.want {
+			t.Errorf("blocked(%q) = %v, want %v", tc.path, got, tc.want)
 		}
 	}
 }
