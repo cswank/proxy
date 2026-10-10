@@ -235,8 +235,8 @@ func newProxy(target *url.URL) http.Handler {
 	}
 }
 
-// server routes by Host header: a configured backend if there is one for the
-// host, the static file tree otherwise.
+// server routes by Host header: a configured backend or directory if there is
+// one for the host, the static file tree otherwise.
 type server struct {
 	proxies map[string]http.Handler
 	static  http.Handler
@@ -255,6 +255,21 @@ func newServer(cfg config) (*server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid target %q for host %s: %w", target, h, err)
 		}
+
+		// A file:// target serves that directory as the host's own web root,
+		// with the same protections as WWW, for sites that are just files.
+		if u.Scheme == "file" {
+			if u.Host != "" || !path.IsAbs(u.Path) {
+				return nil, fmt.Errorf("target %q for host %s needs an absolute path, file:///like/this", target, h)
+			}
+			dir, err := newStaticFiles(u.Path)
+			if err != nil {
+				return nil, fmt.Errorf("unable to serve dir %s for host %s: %w", u.Path, h, err)
+			}
+			proxies[normalizeHost(h)] = dir
+			continue
+		}
+
 		if u.Scheme == "" || u.Host == "" {
 			return nil, fmt.Errorf("target %q for host %s needs a scheme and a host", target, h)
 		}

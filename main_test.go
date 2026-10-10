@@ -271,6 +271,63 @@ func TestNewServerRejectsBadTarget(t *testing.T) {
 	}
 }
 
+func TestFileTarget(t *testing.T) {
+	www, site := t.TempDir(), t.TempDir()
+	for dir, body := range map[string]string{www: "default", site: "site"} {
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(site, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(site, ".git", "config"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := newServer(config{WWW: www, Map: map[string]host{
+		"site.example": host("file://" + site),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		host, path string
+		code       int
+		body       string
+	}{
+		{"site.example", "/", http.StatusOK, "site"},
+		{"Site.example:8000", "/", http.StatusOK, "site"},
+		{"site.example", "/.git/config", http.StatusNotFound, ""},
+		{"other.example", "/", http.StatusOK, "default"},
+	} {
+		req := httptest.NewRequest("GET", "https://x"+tc.path, nil)
+		req.Host = tc.host
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+
+		if rec.Code != tc.code {
+			t.Errorf("GET %s%s = %d, want %d", tc.host, tc.path, rec.Code, tc.code)
+		}
+		if tc.body != "" && rec.Body.String() != tc.body {
+			t.Errorf("GET %s%s body = %q, want %q", tc.host, tc.path, rec.Body, tc.body)
+		}
+	}
+}
+
+func TestNewServerRejectsBadFileTarget(t *testing.T) {
+	for name, target := range map[string]host{
+		"missing dir": host("file://" + filepath.Join(t.TempDir(), "nope")),
+		"relative":    "file:licks",
+		"with host":   "file://somehost/licks",
+	} {
+		if _, err := newServer(config{WWW: t.TempDir(), Map: map[string]host{"a.example": target}}); err == nil {
+			t.Errorf("%s: newServer accepted %q, want a startup error", name, target)
+		}
+	}
+}
+
 func TestNewServerRejectsMissingWWW(t *testing.T) {
 	if _, err := newServer(config{WWW: filepath.Join(t.TempDir(), "nope"), Map: map[string]host{}}); err == nil {
 		t.Error("newServer accepted a nonexistent www dir, want a startup error")
